@@ -1,5 +1,5 @@
 library: multiplatform
 dateLibrary: kotlinx-datetime
-artifactId:
-groupId:
-packageName:
+artifactId: openhue-client
+groupId: dev.t3mu
+packageName: dev.t3mu.openhue
