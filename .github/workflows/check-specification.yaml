@@ -1,0 +1,36 @@
+name: Check for newer specification
+
+on:
+  schedule:
+    - cron: '0 4 * * *' # Run at 4 in the morning
+  push:
+    branches:
+      - main
+
+jobs:
+  check-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get latest released specification
+        run: |
+          curl -L \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          https://api.github.com/repos/${{ vars.UPSTREAM_REPOSITORY }}/releases/latest > latest-release.json
+      - name: Save specification tag
+        run: echo "LATEST_OPENAPI_RELEASE=$(jq -r '.tag_name' latest-release.json)" >> "$GITHUB_ENV"
+      - name: Get latest released artifact
+        run: |
+          curl -L \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          -H 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
+          https://api.github.com/repos/$GITHUB_REPOSITORY/releases/latest > latest-artifact.json
+      - name: Save artifact tag
+        run: echo "LATEST_ARTIFACT_RELEASE=$(jq -r '.tag_name' latest-artifact.json)" >> "$GITHUB_ENV"
+      - name: Checkout
+        if: env.LATEST_OPENAPI_RELEASE != env.LATEST_ARTIFACT_RELEASE
+        uses: actions/checkout@v2
+      - name: Create a release
+        if: env.LATEST_OPENAPI_RELEASE != env.LATEST_ARTIFACT_RELEASE
+        run: gh release create "$LATEST_OPENAPI_RELEASE"
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}

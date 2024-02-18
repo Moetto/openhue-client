@@ -1,0 +1,61 @@
+name: Generate and publish
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  generate-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Setup java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Get openapi generator
+        run: wget https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/7.3.0/openapi-generator-cli-7.3.0.jar -O openapi-generator-cli.jar
+      - name: Generate templates
+        run: java -jar openapi-generator-cli.jar author template -g kotlin --library multiplatform
+      - name: Patch the templates
+        run: patch out/libraries/multiplatform/build.gradle.kts.mustache <add-publishing.patch
+      - name: Fetch the released specification
+        run: |
+          curl -L \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          https://api.github.com/repos/${{ vars.UPSTREAM_REPOSITORY }}/releases/tags/$GITHUB_REF_NAME > release.json
+      - name: Generate client code
+        run: |
+          java -jar openapi-generator-cli.jar generate -g kotlin \
+          -i  "$(jq -r '.assets[0].browser_download_url' release.json)" \
+          -c generator-config.yaml \
+          -t out/ \
+          -o kotlin-client \
+          --additional-properties repository=$GITHUB_REPOSITORY,artifactVersion="$(jq -r '.tag_name' release.json)"
+      - run: chmod +x kotlin-client/gradlew
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.1.1
+      - name: Workaround for chrome on Act
+        if: env.ACT == 'true'
+        run: |
+            sudo apt-get update
+            sudo apt-get install -y libgconf-2-4 libatk1.0-0 libatk-bridge2.0-0 libgdk-pixbuf2.0-0 libgtk-3-0 libgbm-dev libnss3-dev libxss-dev libasound2
+      - name: Install Chrome for tests
+        uses: browser-actions/setup-chrome@v1
+        id: setup-chrome
+      - run: |
+          echo "CHROME_BIN=${{ steps.setup-chrome.outputs.chrome-path }}" >> "$GITHUB_ENV"
+      - name: Publish package
+        working-directory: kotlin-client
+        run: |
+          ./gradlew \
+          -Dkotlin.native.ignoreDisabledTargets=true \
+          publishJvmPublicationToGitHubPackagesRepository \
+          publishJsPublicationToGitHubPackagesRepository \
+          publishKotlinMultiplatformPublicationToGitHubPackagesRepository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
